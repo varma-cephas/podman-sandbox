@@ -128,7 +128,7 @@ devnode() {
       -e npm_config_cache=/tmp/.npm \
       -v "$(pwd -P):/app:rw,z" \
       -w /app \
-      -p 127.0.0.1:3000:3000 \
+      -p 127.0.0.1::3000 \
       --entrypoint "$1" \
       "$_SANENODE_IMAGE" "${@:2}"
   else
@@ -144,7 +144,7 @@ devnode() {
       -e npm_config_cache=/tmp/.npm \
       -v "$(pwd -P):/app:rw,z" \
       -w /app \
-      -p 127.0.0.1:3000:3000 \
+      -p 127.0.0.1::3000 \
       --entrypoint /bin/bash \
       "$_SANENODE_IMAGE"
   fi
@@ -228,7 +228,7 @@ testnode() (
       -e npm_config_cache=/tmp/.npm \
       -v "$workspace:/app:rw" \
       -w /app \
-      -p 127.0.0.1:3000:3000 \
+      -p 127.0.0.1::3000 \
       --entrypoint "${cmd[0]}" \
       "$_SANENODE_IMAGE" "${cmd[@]:1}"; then
     status=0
