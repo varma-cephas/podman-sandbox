@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 
-_SANENODE_IMAGE="docker.io/library/node:22-bookworm"
+
+if [[ -z "${_SANENODE_IMAGE:-}" ]]; then
+  readonly _SANENODE_IMAGE="docker.io/library/node:22-bookworm"
+fi
+
+if [[ -z "${INSPECTIDE_PINNED_IMAGE:-}" ]]; then
+  readonly INSPECTIDE_PINNED_IMAGE="docker.io/codercom/code-server:latest"
+fi
 
 # Validate Podman, image availability, and the current directory.
 _safenode_guard() {
@@ -64,6 +71,20 @@ checknodeimg() {
 
   printf '[MISSING] %s\n' "$_SANENODE_IMAGE" >&2
   printf 'Run: podman pull %s\n' "$_SANENODE_IMAGE" >&2
+  return 1
+}
+
+# Check the local code-server image.
+checkcodeimg() {
+  if podman image exists "$INSPECTIDE_PINNED_IMAGE" 2>/dev/null; then
+    printf '[OK] %s\n' "$INSPECTIDE_PINNED_IMAGE"
+    podman image inspect "$INSPECTIDE_PINNED_IMAGE" \
+      --format 'ID: {{.Id}} | Created: {{.Created}}' 2>/dev/null || true
+    return 0
+  fi
+
+  printf '[MISSING] %s\n' "$INSPECTIDE_PINNED_IMAGE" >&2
+  printf 'Run: podman pull %s\n' "$INSPECTIDE_PINNED_IMAGE" >&2
   return 1
 }
 
@@ -267,4 +288,68 @@ untrustednode() {
     echo "Usage: untrustednode COMMAND [ARGUMENTS...]" >&2
     return 2
   fi
+}
+
+# 5. INSPECT IDE: Browser-based code-server for safe repository auditing.
+# 5. INSPECT IDE: Browser-based code-server for safe repository auditing.
+inspectide() {
+  _safenode_guard || return 1
+  checkcodeimg || return 1
+
+  local repo cid host_port rc
+  repo="$(pwd -P)" || return 1
+  [[ -d "$repo" ]] || return 1
+
+  cid=""
+
+  cleanup_inspectide() {
+    if [[ -n "$cid" ]]; then
+      podman rm -f "$cid" >/dev/null 2>&1 || true
+      cid=""
+    fi
+  }
+
+  cid=$(podman run -d \
+    --pull=never \
+    --userns=keep-id \
+    --cap-drop=all \
+    --security-opt=no-new-privileges \
+    --pids-limit=256 \
+    --memory=2g \
+    --cpus=2 \
+    --read-only \
+    --tmpfs /tmp:rw,noexec,nosuid,nodev,size=512m \
+    -e HOME=/tmp \
+    -e XDG_CONFIG_HOME=/tmp/.config \
+    -e XDG_CACHE_HOME=/tmp/.cache \
+    -e XDG_DATA_HOME=/tmp/.local/share \
+    -v "$repo:/home/coder/project:ro,z" \
+    -p 127.0.0.1::8080 \
+    --entrypoint /usr/bin/code-server \
+    "$INSPECTIDE_PINNED_IMAGE" \
+    --disable-telemetry \
+    --auth none \
+    --bind-addr 0.0.0.0:8080 \
+    /home/coder/project) || {
+      echo "ERROR: Failed to start inspection container." >&2
+      return 1
+    }
+
+  host_port=$(podman port "$cid" 8080/tcp 2>/dev/null |
+    awk -F: 'NR == 1 {print $NF}')
+
+  if [[ -z "$host_port" ]]; then
+    echo "ERROR: Could not retrieve published port." >&2
+    cleanup_inspectide
+    return 1
+  fi
+
+  echo "InspectIDE started: http://127.0.0.1:${host_port}"
+  echo "Stop with Ctrl+C."
+
+  podman logs -f "$cid"
+  rc=$?
+
+  cleanup_inspectide
+  return "$rc"
 }
