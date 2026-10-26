@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-_SANENODE_IMAGE="docker.io/library/node:22-bookworm"
+readonly _SANENODE_IMAGE="docker.io/library/node:22-bookworm"
 
 # Validate Podman, image availability, and the current directory.
 _safenode_guard() {
@@ -71,28 +71,39 @@ checknodeimg() {
 inspectrepo() {
   _safenode_guard || return 1
 
-  local -a cmd
   if (($#)); then
-    cmd=("$@")
+    podman run --rm -it \
+      --pull=never \
+      --userns=keep-id \
+      --network=none \
+      --read-only \
+      --cap-drop=all \
+      --security-opt=no-new-privileges \
+      --pids-limit=128 \
+      --memory=1g \
+      --cpus=2 \
+      --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m \
+      -v "$(pwd -P):/repo:ro" \
+      -w /repo \
+      --entrypoint "$1" \
+      "$_SANENODE_IMAGE" "${@:2}"
   else
-    cmd=(/bin/bash)
+    podman run --rm -it \
+      --pull=never \
+      --userns=keep-id \
+      --network=none \
+      --read-only \
+      --cap-drop=all \
+      --security-opt=no-new-privileges \
+      --pids-limit=128 \
+      --memory=1g \
+      --cpus=2 \
+      --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m \
+      -v "$(pwd -P):/repo:ro" \
+      -w /repo \
+      --entrypoint /bin/bash \
+      "$_SANENODE_IMAGE"
   fi
-
-  podman run --rm -it \
-    --pull=never \
-    --userns=keep-id \
-    --network=none \
-    --read-only \
-    --cap-drop=all \
-    --security-opt=no-new-privileges \
-    --pids-limit=128 \
-    --memory=1g \
-    --cpus=2 \
-    --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m \
-    -v "$(pwd -P):/repo:ro" \
-    -w /repo \
-    --entrypoint "${cmd[0]}" \
-    "$_SANENODE_IMAGE" "${cmd[@]:1}"
 }
 
 # 2. DEVELOP: trusted project, writable working tree.
@@ -103,44 +114,58 @@ devnode() {
   local mem="${DEV_MEM:-6g}"
   local cpus="${DEV_CPUS:-6}"
   local pids="${DEV_PIDS:-1024}"
-  local -a cmd
 
   if (($#)); then
-    cmd=("$@")
+    podman run --rm -it \
+      --pull=never \
+      --userns=keep-id \
+      --cap-drop=all \
+      --security-opt=no-new-privileges \
+      --pids-limit="$pids" \
+      --memory="$mem" \
+      --cpus="$cpus" \
+      -e HOME=/tmp \
+      -e npm_config_cache=/tmp/.npm \
+      -v "$(pwd -P):/app:rw" \
+      -w /app \
+      -p 127.0.0.1:3000:3000 \
+      --entrypoint "$1" \
+      "$_SANENODE_IMAGE" "${@:2}"
   else
-    cmd=(/bin/bash)
+    podman run --rm -it \
+      --pull=never \
+      --userns=keep-id \
+      --cap-drop=all \
+      --security-opt=no-new-privileges \
+      --pids-limit="$pids" \
+      --memory="$mem" \
+      --cpus="$cpus" \
+      -e HOME=/tmp \
+      -e npm_config_cache=/tmp/.npm \
+      -v "$(pwd -P):/app:rw" \
+      -w /app \
+      -p 127.0.0.1:3000:3000 \
+      --entrypoint /bin/bash \
+      "$_SANENODE_IMAGE"
   fi
-
-  podman run --rm -it \
-    --pull=never \
-    --userns=keep-id \
-    --cap-drop=all \
-    --security-opt=no-new-privileges \
-    --pids-limit="$pids" \
-    --memory="$mem" \
-    --cpus="$cpus" \
-    -e HOME=/tmp \
-    -e npm_config_cache=/tmp/.npm \
-    -v "$(pwd -P):/app:rw" \
-    -w /app \
-    -p 127.0.0.1:3000:3000 \
-    --entrypoint "${cmd[0]}" \
-    "$_SANENODE_IMAGE" "${cmd[@]:1}"
 }
 
-# 3. TEST: network-enabled, disposable writable project copy.
-testnode() {
+# 3. TEST: network-enabled, disposable writable project copy (subshell isolated).
+testnode() (
   _safenode_guard || return 1
   _require_node_project || return 1
 
-  local source workspace archive status
+  local source workspace archive status=0
   source=$(pwd -P) || return 1
 
   workspace=$(mktemp -d "${TMPDIR:-/tmp}/podman-sandbox-test.XXXXXX") || {
     echo "ERROR: Could not create temporary workspace." >&2
     return 1
   }
-  chmod 700 "$workspace"
+  chmod 700 "$workspace" || {
+    rm -rf -- "$workspace"
+    return 1
+  }
 
   archive=$(mktemp "${TMPDIR:-/tmp}/podman-sandbox-archive.XXXXXX") || {
     rm -rf -- "$workspace"
@@ -148,8 +173,16 @@ testnode() {
     return 1
   }
 
-  # Exclude common local dependencies, Git metadata, and secrets.
-  # The original working tree is never mounted into this container.
+  cleanup_testnode() {
+    rm -rf -- "$workspace" 2>/dev/null || true
+    [[ -z "${archive:-}" ]] || rm -f -- "$archive" 2>/dev/null || true
+  }
+
+  trap cleanup_testnode EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  trap 'exit 129' HUP
+
   if ! tar -C "$source" \
       --exclude=.git \
       --exclude=node_modules \
@@ -160,19 +193,20 @@ testnode() {
       --exclude=.config \
       -cf "$archive" .; then
     echo "ERROR: Failed to prepare project copy." >&2
-    rm -rf -- "$workspace"
-    rm -f -- "$archive"
     return 1
   fi
 
   if ! tar -xf "$archive" -C "$workspace"; then
     echo "ERROR: Failed to extract project copy." >&2
-    rm -rf -- "$workspace"
-    rm -f -- "$archive"
     return 1
   fi
 
-  rm -f -- "$archive"
+  rm -f -- "$archive" || return 1
+  archive=""
+
+  echo "Starting disposable test workspace."
+  echo "Original repository: read-only and not mounted."
+  echo "Temporary copy will be deleted on exit."
 
   local -a cmd
   if (($#)); then
@@ -181,11 +215,6 @@ testnode() {
     cmd=(/bin/bash)
   fi
 
-  echo "Starting disposable test workspace."
-  echo "Original repository: read-only and not mounted."
-  echo "Temporary copy will be deleted on exit."
-
-  # Capture failures without skipping cleanup under `set -e`.
   if podman run --rm -it \
       --pull=never \
       --userns=keep-id \
@@ -207,38 +236,35 @@ testnode() {
     status=$?
   fi
 
-  rm -rf -- "$workspace"
   return "$status"
-}
+)
 
-# 4. UNTRUSTED: offline execution, read-only repository.
+# 4. UNTRUSTED: offline execution, read-only repository (requires explicit command).
 untrustednode() {
   _safenode_guard || return 1
   _require_node_project || return 1
 
-  local -a cmd
   if (($#)); then
-    cmd=("$@")
+    podman run --rm \
+      --pull=never \
+      --userns=keep-id \
+      --network=none \
+      --read-only \
+      --cap-drop=all \
+      --security-opt=no-new-privileges \
+      --pids-limit=256 \
+      --memory=1g \
+      --cpus=2 \
+      --tmpfs /tmp:rw,noexec,nosuid,nodev,size=128m \
+      -e HOME=/tmp \
+      -e npm_config_cache=/tmp/.npm \
+      -v "$(pwd -P):/app:ro" \
+      -w /app \
+      --entrypoint "$1" \
+      "$_SANENODE_IMAGE" "${@:2}"
   else
+    echo "ERROR: untrustednode requires an explicit command." >&2
     echo "Usage: untrustednode COMMAND [ARGUMENTS...]" >&2
     return 2
   fi
-
-  podman run --rm \
-    --pull=never \
-    --userns=keep-id \
-    --network=none \
-    --read-only \
-    --cap-drop=all \
-    --security-opt=no-new-privileges \
-    --pids-limit=256 \
-    --memory=1g \
-    --cpus=2 \
-    --tmpfs /tmp:rw,noexec,nosuid,nodev,size=128m \
-    -e HOME=/tmp \
-    -e npm_config_cache=/tmp/.npm \
-    -v "$(pwd -P):/app:ro" \
-    -w /app \
-    --entrypoint "${cmd[0]}" \
-    "$_SANENODE_IMAGE" "${cmd[@]:1}"
 }
