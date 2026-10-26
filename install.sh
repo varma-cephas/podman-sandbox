@@ -4,7 +4,7 @@ set -euo pipefail
 umask 077
 
 INSTALL_DIR="${HOME}/.config/podman-sandbox"
-SCRIPT_SOURCE="./podman-sandbox.sh"
+SCRIPT_SOURCE="./sandbox.sh"
 TARGET="${INSTALL_DIR}/sandbox.sh"
 
 # 1. Determine the supported interactive shell.
