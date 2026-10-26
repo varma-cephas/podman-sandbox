@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-readonly _SANENODE_IMAGE="docker.io/library/node:22-bookworm"
+_SANENODE_IMAGE="docker.io/library/node:22-bookworm"
 
 # Validate Podman, image availability, and the current directory.
 _safenode_guard() {
@@ -126,7 +126,7 @@ devnode() {
       --cpus="$cpus" \
       -e HOME=/tmp \
       -e npm_config_cache=/tmp/.npm \
-      -v "$(pwd -P):/app:rw" \
+      -v "$(pwd -P):/app:rw,z" \
       -w /app \
       -p 127.0.0.1:3000:3000 \
       --entrypoint "$1" \
@@ -142,7 +142,7 @@ devnode() {
       --cpus="$cpus" \
       -e HOME=/tmp \
       -e npm_config_cache=/tmp/.npm \
-      -v "$(pwd -P):/app:rw" \
+      -v "$(pwd -P):/app:rw,z" \
       -w /app \
       -p 127.0.0.1:3000:3000 \
       --entrypoint /bin/bash \
