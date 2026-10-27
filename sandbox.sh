@@ -291,7 +291,6 @@ untrustednode() {
 }
 
 # 5. INSPECT IDE: Browser-based code-server for safe repository auditing.
-# 5. INSPECT IDE: Browser-based code-server for safe repository auditing.
 inspectide() {
   _safenode_guard || return 1
   checkcodeimg || return 1
@@ -352,4 +351,19 @@ inspectide() {
 
   cleanup_inspectide
   return "$rc"
+}
+
+# ---------------------------------------------------------------------------
+# Host Guardrails: Trap accidental host package manager execution
+# ---------------------------------------------------------------------------
+npm() {
+  echo "ERROR: Host npm is disabled. Use 'devnode npm' or 'testnode' instead." >&2
+  echo "       (To force raw host execution: command npm)" >&2
+  return 1
+}
+
+pnpm() {
+  echo "ERROR: Host pnpm is disabled. Use your container sandbox instead." >&2
+  echo "       (To force raw host execution: command pnpm)" >&2
+  return 1
 }
