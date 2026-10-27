@@ -127,7 +127,7 @@ inspectrepo() {
   fi
 }
 
-# 2. DEVELOP: trusted project, writable working tree.
+# 2. DEVELOP: trusted project, writable working tree with persistent pnpm & corepack caches.
 devnode() {
   _safenode_guard || return 1
   _require_node_project || return 1
@@ -135,40 +135,53 @@ devnode() {
   local mem="${DEV_MEM:-6g}"
   local cpus="${DEV_CPUS:-6}"
   local pids="${DEV_PIDS:-1024}"
+  local repo
 
-  if (($#)); then
-    podman run --rm -it \
-      --pull=never \
-      --userns=keep-id \
-      --cap-drop=all \
-      --security-opt=no-new-privileges \
-      --pids-limit="$pids" \
-      --memory="$mem" \
-      --cpus="$cpus" \
-      -e HOME=/tmp \
-      -e npm_config_cache=/tmp/.npm \
-      -v "$(pwd -P):/app:rw,z" \
-      -w /app \
-      -p 127.0.0.1:3001:3001 \
-      --entrypoint "$1" \
-      "$_SANENODE_IMAGE" "${@:2}"
-  else
-    podman run --rm -it \
-      --pull=never \
-      --userns=keep-id \
-      --cap-drop=all \
-      --security-opt=no-new-privileges \
-      --pids-limit="$pids" \
-      --memory="$mem" \
-      --cpus="$cpus" \
-      -e HOME=/tmp \
-      -e npm_config_cache=/tmp/.npm \
-      -v "$(pwd -P):/app:rw,z" \
-      -w /app \
-      -p 127.0.0.1:3001:3001 \
-      --entrypoint /bin/bash \
-      "$_SANENODE_IMAGE"
+  repo="$(pwd -P)" || return 1
+
+  # Ensure persistent named volumes exist for pnpm and corepack caching
+  podman volume exists pnpm_store 2>/dev/null || podman volume create pnpm_store >/dev/null || return 1
+  podman volume exists corepack_cache 2>/dev/null || podman volume create corepack_cache >/dev/null || return 1
+
+  local -a tty_args=()
+  local -a port_args=()
+
+  if (($# == 0)); then
+    tty_args=(-it)
+    port_args=(-p 127.0.0.1:3001:3000)
   fi
+
+  podman run --rm "${tty_args[@]}" \
+    --pull=never \
+    --userns=keep-id \
+    --cap-drop=all \
+    --security-opt=no-new-privileges \
+    --pids-limit="$pids" \
+    --memory="$mem" \
+    --cpus="$cpus" \
+    -e HOME=/tmp \
+    -e npm_config_cache=/tmp/.npm \
+    -e pnpm_config_store_dir=/tmp/.pnpm-store \
+    -e COREPACK_HOME=/tmp/.corepack \
+    -e COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
+    -v "$repo:/app:rw,z" \
+    -v pnpm_store:/tmp/.pnpm-store:rw,z \
+    -v corepack_cache:/tmp/.corepack:rw,z \
+    -w /app \
+    "${port_args[@]}" \
+    --entrypoint /bin/bash \
+    "$_SANENODE_IMAGE" \
+    -c '
+      mkdir -p /tmp/.local/bin || exit
+      export PATH="/tmp/.local/bin:$PATH"
+      corepack enable --install-directory /tmp/.local/bin || exit
+
+      if (($#)); then
+        exec "$@"
+      else
+        exec /bin/bash
+      fi
+    ' bash "$@"
 }
 
 # 3. TEST: network-enabled, disposable writable project copy (subshell isolated).

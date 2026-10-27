@@ -28,10 +28,11 @@ The sandbox provides five tailored modes for different trust levels:
 
 ### 1. `devnode` — Everyday Development
 
-* Writable repository mount directly in your working tree.
-* Network access for package installation and development tools.
-* Local port forwarding on `127.0.0.1:3000`.
-* Configurable CPU, memory, and process limits.
+- Writable repository mount directly in your working tree.
+- Network access for package installation and development tools.
+- **Split-port mapping** on `127.0.0.1:3001` forwarding to container port `3000` (cleanly coexisting with IDE Dev Containers).
+- **Persistent caching** via dedicated Podman named volumes (`pnpm_store` and `corepack_cache`) for lightning-fast dependency installs and zero host or project pollution.
+- Configurable CPU, memory, and process limits with dynamic TTY and port allocation for interactive shells versus one-off CLI tasks.
 
 > **Use this mode for projects and code you fully trust.**
 
