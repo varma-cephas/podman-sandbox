@@ -149,7 +149,7 @@ devnode() {
       -e npm_config_cache=/tmp/.npm \
       -v "$(pwd -P):/app:rw,z" \
       -w /app \
-      -p 127.0.0.1::3000 \
+      -p 127.0.0.1:3001:3001 \
       --entrypoint "$1" \
       "$_SANENODE_IMAGE" "${@:2}"
   else
@@ -165,7 +165,7 @@ devnode() {
       -e npm_config_cache=/tmp/.npm \
       -v "$(pwd -P):/app:rw,z" \
       -w /app \
-      -p 127.0.0.1::3000 \
+      -p 127.0.0.1:3001:3001 \
       --entrypoint /bin/bash \
       "$_SANENODE_IMAGE"
   fi

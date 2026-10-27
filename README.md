@@ -250,8 +250,14 @@ How to Set It Up in Your Project
   - Zed: Open the project workspace. Zed will automatically detect the .devcontainer configuration and allow you to spin up the isolated development environment natively.
 
   - Security Note: This configuration maintains strict security parity by forcing rootless user mapping (--userns=keep-id), stripping capabilities (--cap-drop=all), and blocking privilege escalation, while automatically handling your project's npm install and port forwarding on port 3000.
-    
-    
+
+### Troubleshooting: Port Collisions (CLI devnode vs. IDE Dev Containers)
+
+If you run your terminal-based CLI devnode command concurrently with your editor's Dev Container (e.g., having both open simultaneously for testing or multi-window workflows), you may encounter host port collisions on port 3000.
+  - Cause: Both the terminal CLI devnode script and your IDE container attempt to bind to the same host port (3000).
+  - The Solution: Offset your CLI devnode host port mapping so it doesn't collide with your editor. For instance, mapping host port 3001 to container port 3000 (-p 127.0.0.1:3001:3000) allows your IDE Dev Container to cleanly own port 3000 while your CLI sandbox runs on port 3001.
+
+  
 ## Development Resource Limits
 
 `devnode` supports environment variables for adjusting resource limits:
