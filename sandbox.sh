@@ -148,7 +148,7 @@ devnode() {
 
   if (($# == 0)); then
     tty_args=(-it)
-    port_args=(-p 127.0.0.1:3001:3000)
+    port_args=(-p 127.0.0.1:3001:3001)
   fi
 
   podman run --rm "${tty_args[@]}" \
