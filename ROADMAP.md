@@ -1,3 +1,7 @@
+## Bugs
+* testnode doesn't work - FIXED
+* 
+
 ## 1. Supply Chain & Reproducibility Hardening
 * **Image Digest Pinning:** 
   Currently, the sandbox references `docker.io/library/node:22-bookworm` by tag. Future iterations will support pinning to an immutable cryptographic content digest (e.g., `@sha256:...`) for absolute supply chain reproducibility and protection against tag poisoning or upstream mutability.

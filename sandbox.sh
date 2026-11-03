@@ -189,88 +189,48 @@ testnode() (
   _safenode_guard || return 1
   _require_node_project || return 1
 
-  local source workspace archive status=0
-  source=$(pwd -P) || return 1
+  local mem="${TEST_MEM:-2g}"
+  local cpus="${TEST_CPUS:-4}"
+  local pids="${TEST_PIDS:-256}"
+  local repo
 
-  workspace=$(mktemp -d "${TMPDIR:-/tmp}/podman-sandbox-test.XXXXXX") || {
-    echo "ERROR: Could not create temporary workspace." >&2
-    return 1
-  }
-  chmod 700 "$workspace" || {
-    rm -rf -- "$workspace"
-    return 1
-  }
+  repo="$(pwd -P)" || return 1
 
-  archive=$(mktemp "${TMPDIR:-/tmp}/podman-sandbox-archive.XXXXXX") || {
-    rm -rf -- "$workspace"
-    echo "ERROR: Could not create temporary archive." >&2
-    return 1
-  }
+  # Ensure persistent named volumes exist for pnpm and corepack caching
+  podman volume exists pnpm_store 2>/dev/null || podman volume create pnpm_store >/dev/null || return 1
+  podman volume exists corepack_cache 2>/dev/null || podman volume create corepack_cache >/dev/null || return 1
 
-  cleanup_testnode() {
-    rm -rf -- "$workspace" 2>/dev/null || true
-    [[ -z "${archive:-}" ]] || rm -f -- "$archive" 2>/dev/null || true
-  }
+  podman run --rm -it \
+    --pull=never \
+    --userns=keep-id \
+    --cap-drop=all \
+    --security-opt=no-new-privileges \
+    --pids-limit="$pids" \
+    --memory="$mem" \
+    --cpus="$cpus" \
+    -e HOME=/tmp \
+    -e npm_config_cache=/tmp/.npm \
+    -e pnpm_config_store_dir=/tmp/.pnpm-store \
+    -e COREPACK_HOME=/tmp/.corepack \
+    -e COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
+    -v "$repo:/app:rw,z" \
+    -v pnpm_store:/tmp/.pnpm-store:rw,z \
+    -v corepack_cache:/tmp/.corepack:rw,z \
+    -w /app \
+    -p 127.0.0.1::3000 \
+    --entrypoint /bin/bash \
+    "$_SANENODE_IMAGE" \
+    -c '
+      mkdir -p /tmp/.local/bin || exit
+      export PATH="/tmp/.local/bin:$PATH"
+      corepack enable --install-directory /tmp/.local/bin || exit
 
-  trap cleanup_testnode EXIT
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
-  trap 'exit 129' HUP
-
-  if ! tar -C "$source" \
-      --exclude=.git \
-      --exclude=node_modules \
-      --exclude='.env*' \
-      --exclude=.npmrc \
-      --exclude=.ssh \
-      --exclude=.aws \
-      --exclude=.config \
-      -cf "$archive" .; then
-    echo "ERROR: Failed to prepare project copy." >&2
-    return 1
-  fi
-
-  if ! tar -xf "$archive" -C "$workspace"; then
-    echo "ERROR: Failed to extract project copy." >&2
-    return 1
-  fi
-
-  rm -f -- "$archive" || return 1
-  archive=""
-
-  echo "Starting disposable test workspace."
-  echo "Original repository: read-only and not mounted."
-  echo "Temporary copy will be deleted on exit."
-
-  local -a cmd
-  if (($#)); then
-    cmd=("$@")
-  else
-    cmd=(/bin/bash)
-  fi
-
-  if podman run --rm -it \
-      --pull=never \
-      --userns=keep-id \
-      --cap-drop=all \
-      --security-opt=no-new-privileges \
-      --pids-limit="${TEST_PIDS:-256}" \
-      --memory="${TEST_MEM:-2g}" \
-      --cpus="${TEST_CPUS:-4}" \
-      --tmpfs /tmp:rw,nosuid,nodev,size=512m \
-      -e HOME=/tmp \
-      -e npm_config_cache=/tmp/.npm \
-      -v "$workspace:/app:rw" \
-      -w /app \
-      -p 127.0.0.1::3000 \
-      --entrypoint "${cmd[0]}" \
-      "$_SANENODE_IMAGE" "${cmd[@]:1}"; then
-    status=0
-  else
-    status=$?
-  fi
-
-  return "$status"
+      if (($#)); then
+        exec "$@"
+      else
+        exec /bin/sh
+      fi
+    ' bash "$@"
 )
 
 # 4. UNTRUSTED: offline execution, read-only repository (requires explicit command).
